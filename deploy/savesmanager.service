@@ -1,0 +1,21 @@
+[Unit]
+Description=SavesManager (Nuxt SSR)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/savesmanager
+ExecStart=/usr/bin/node /opt/savesmanager/.output/server/index.mjs
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=3000
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
