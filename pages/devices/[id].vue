@@ -1,0 +1,301 @@
+<script setup lang="ts">
+import { formatRelativeIso } from "~/composables/useFormat";
+
+interface DeviceData {
+  id: string;
+  nickname: string;
+  lastMountPath?: string;
+  registeredAt: string;
+  mounted: boolean;
+  currentMountPath?: string;
+  retroarchActivityDir?: string;
+  activityCacheKey: string;
+}
+interface SlotRef {
+  profileName: string;
+  slotKey: "slotA" | "slotB";
+  fileRelPath: string;
+  isDirectory?: boolean;
+}
+interface ScanResultRow {
+  cacheKey: string;
+  sourceLabel: string;
+  summary?: {
+    totalEntries: number;
+    parsed: number;
+    reused: number;
+    scannedAt: string;
+  };
+  error?: string;
+  skippedReason?: string;
+}
+
+const route = useRoute();
+const router = useRouter();
+const id = computed(() => route.params.id as string);
+
+const device = ref<DeviceData | null>(null);
+const slots = ref<SlotRef[]>([]);
+const loading = ref(true);
+const error = ref<string | null>(null);
+
+const editing = ref(false);
+const editBusy = ref(false);
+const editError = ref<string | null>(null);
+
+const scanning = ref(false);
+const scanResult = ref<ScanResultRow | null>(null);
+
+async function refresh() {
+  loading.value = true;
+  error.value = null;
+  try {
+    const res = await $fetch<{ device: DeviceData; slots: SlotRef[] }>(
+      `/api/devices/${id.value}`,
+    );
+    device.value = res.device;
+    slots.value = res.slots;
+  } catch (e) {
+    error.value = (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(refresh);
+watch(id, refresh);
+
+async function renameDevice() {
+  if (!device.value) return;
+  const next = prompt("New nickname:", device.value.nickname);
+  if (!next || next.trim() === device.value.nickname) return;
+  try {
+    await $fetch(`/api/devices/${id.value}`, {
+      method: "PATCH",
+      body: { nickname: next.trim() },
+    });
+    await refresh();
+  } catch (e) {
+    error.value = (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
+  }
+}
+
+async function forgetDevice() {
+  if (!device.value) return;
+  if (
+    !confirm(
+      `Forget "${device.value.nickname}"? Profiles referencing it will show as unknown until you re-register.`,
+    )
+  )
+    return;
+  try {
+    await $fetch(`/api/devices/${id.value}`, { method: "DELETE" });
+    router.push("/devices");
+  } catch (e) {
+    error.value = (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
+  }
+}
+
+function openActivityEditor() {
+  if (!device.value?.mounted) return;
+  editing.value = true;
+  editError.value = null;
+}
+
+function cancelActivityEdit() {
+  editing.value = false;
+  editError.value = null;
+}
+
+async function applyActivityDir(value: string | null) {
+  editBusy.value = true;
+  editError.value = null;
+  try {
+    await $fetch(`/api/devices/${id.value}`, {
+      method: "PATCH",
+      body: { retroarchActivityDir: value },
+    });
+    editing.value = false;
+    await refresh();
+  } catch (e) {
+    editError.value = (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
+  } finally {
+    editBusy.value = false;
+  }
+}
+
+async function runScan() {
+  if (!device.value) return;
+  scanning.value = true;
+  try {
+    const res = await $fetch<{ results: ScanResultRow[] }>("/api/activity/scan", {
+      method: "POST",
+      body: { cacheKey: device.value.activityCacheKey },
+    });
+    scanResult.value = res.results[0] ?? null;
+  } catch (e) {
+    scanResult.value = {
+      cacheKey: device.value.activityCacheKey,
+      sourceLabel: device.value.nickname,
+      error: (e as { statusMessage?: string }).statusMessage ?? (e as Error).message,
+    };
+  } finally {
+    scanning.value = false;
+  }
+}
+
+function slotLetter(key: "slotA" | "slotB"): "A" | "B" {
+  return key === "slotA" ? "A" : "B";
+}
+</script>
+
+<template>
+  <div class="flex flex-col gap-4">
+    <div v-if="loading" class="flex items-center justify-center gap-3 py-8 text-fg-dim">
+      <Spinner /> <span>Loading device…</span>
+    </div>
+    <p v-else-if="error" class="text-danger">{{ error }}</p>
+
+    <template v-else-if="device">
+      <header class="flex flex-col gap-1">
+        <div class="flex items-center justify-between gap-2">
+          <h1 class="truncate text-xl font-bold">{{ device.nickname }}</h1>
+          <span
+            class="pill"
+            :class="
+              device.mounted
+                ? 'bg-[color-mix(in_oklab,var(--color-ok)_25%,transparent)] text-ok'
+                : 'bg-surface-2 text-fg-dim'
+            "
+            >{{ device.mounted ? "mounted" : "absent" }}</span
+          >
+        </div>
+        <p class="truncate text-xs text-fg-dim">
+          id={{ device.id.slice(0, 8) }}… · last seen
+          {{ device.lastMountPath ?? "?" }}
+          <span v-if="device.mounted && device.currentMountPath">
+            · now at <span class="font-mono">{{ device.currentMountPath }}</span>
+          </span>
+        </p>
+        <div class="pt-2">
+          <button class="btn-ghost text-sm" @click="renameDevice">Rename</button>
+        </div>
+      </header>
+
+      <section class="card flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="font-semibold">RetroArch activity</h2>
+          <span
+            v-if="device.retroarchActivityDir"
+            class="pill bg-[color-mix(in_oklab,var(--color-ok)_25%,transparent)] text-ok"
+            >configured</span
+          >
+          <span v-else class="pill bg-surface-2 text-fg-dim">not set</span>
+        </div>
+        <p class="break-all text-sm text-fg-dim">
+          {{
+            device.retroarchActivityDir
+              ? `/${device.retroarchActivityDir}`
+              : "Browse to your RetroArch playlists/logs folder to enable activity tracking."
+          }}
+        </p>
+
+        <div v-if="editing" class="flex flex-col gap-2">
+          <p v-if="editError" class="text-danger text-sm">{{ editError }}</p>
+          <FolderPicker
+            v-if="device.currentMountPath"
+            :mount-path="device.currentMountPath"
+            :initial-rel-path="device.retroarchActivityDir"
+            commit-label="Use this folder"
+            @select="applyActivityDir($event)"
+            @cancel="cancelActivityEdit"
+          />
+        </div>
+
+        <p
+          v-if="scanResult"
+          class="text-xs"
+          :class="
+            scanResult.error || scanResult.skippedReason ? 'text-warn' : 'text-ok'
+          "
+        >
+          <template v-if="scanResult.error">Scan error: {{ scanResult.error }}</template>
+          <template v-else-if="scanResult.skippedReason">
+            Skipped: {{ scanResult.skippedReason }}
+          </template>
+          <template v-else-if="scanResult.summary">
+            Scanned {{ scanResult.summary.totalEntries }} games
+            ({{ scanResult.summary.parsed }} new/changed)
+          </template>
+        </p>
+
+        <div v-if="!editing" class="flex flex-wrap gap-2 pt-1">
+          <button
+            class="btn-secondary text-sm"
+            :disabled="!device.mounted"
+            :title="device.mounted ? '' : 'Mount this device to browse'"
+            @click="openActivityEditor"
+          >
+            {{ device.retroarchActivityDir ? "Change folder" : "Set activity folder" }}
+          </button>
+          <button
+            v-if="device.retroarchActivityDir"
+            class="btn-ghost text-sm"
+            :disabled="!device.mounted || scanning"
+            :title="device.mounted ? '' : 'Mount this device to scan'"
+            @click="runScan"
+          >
+            <Spinner v-if="scanning" size="sm" />
+            <span>{{ scanning ? "Scanning…" : "Scan activity" }}</span>
+          </button>
+          <button
+            v-if="device.retroarchActivityDir"
+            class="btn-ghost text-sm"
+            :disabled="editBusy"
+            @click="applyActivityDir(null)"
+          >
+            Clear
+          </button>
+        </div>
+      </section>
+
+      <section class="flex flex-col gap-2">
+        <h2 class="font-semibold">Save slots on this device</h2>
+        <ul v-if="slots.length > 0" class="flex flex-col gap-2">
+          <li v-for="s in slots" :key="`${s.profileName}-${s.slotKey}`">
+            <NuxtLink
+              :to="`/profiles/${encodeURIComponent(s.profileName)}`"
+              class="row-button"
+            >
+              <div class="flex min-w-0 flex-1 flex-col">
+                <span class="truncate font-semibold">{{ s.profileName }}</span>
+                <span class="truncate text-xs text-fg-dim">
+                  Slot {{ slotLetter(s.slotKey) }} ·
+                  {{ s.isDirectory ? "📂" : "" }}/{{ s.fileRelPath }}
+                </span>
+              </div>
+              <span aria-hidden="true" class="text-fg-dim">›</span>
+            </NuxtLink>
+          </li>
+        </ul>
+        <p v-else class="card text-center text-sm text-fg-dim">
+          No save slots use this device yet.
+        </p>
+        <NuxtLink to="/profiles/new" class="btn-secondary self-start text-sm">
+          + Add to a new profile
+        </NuxtLink>
+      </section>
+
+      <section class="card flex flex-col gap-2">
+        <h2 class="font-semibold text-danger">Danger zone</h2>
+        <p class="text-xs text-fg-dim">
+          Forgetting removes this device from the app. The marker file on the device
+          is left in place so you can re-register later by mounting it.
+        </p>
+        <button class="btn-ghost self-start text-sm text-danger" @click="forgetDevice">
+          Forget this device
+        </button>
+      </section>
+    </template>
+  </div>
+</template>
