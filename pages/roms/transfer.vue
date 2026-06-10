@@ -48,13 +48,30 @@ const error = ref<string | null>(null);
 const search = ref("");
 const collapsed = ref<Set<string>>(new Set());
 
-const transferable = computed(() => planItems.value.filter((i) => !i.blocker && !i.alreadyInstalled));
-const selectedItems = computed(() => planItems.value.filter((i) => selected.value.has(i.gameKey)));
-const selectedSize = computed(() => selectedItems.value.reduce((s, i) => s + i.sizeBytes, 0));
+const transferable = computed(() =>
+  planItems.value.filter((i) => !i.blocker && !i.alreadyInstalled),
+);
+const selectedItems = computed(() =>
+  planItems.value.filter((i) => selected.value.has(i.gameKey)),
+);
+const selectedSize = computed(() =>
+  selectedItems.value.reduce((s, i) => s + i.sizeBytes, 0),
+);
 
 const selectedDestLabel = computed(
-  () => destinations.value.find((d) => d.cacheKey === destCacheKey.value)?.sourceLabel ?? "",
+  () =>
+    destinations.value.find((d) => d.cacheKey === destCacheKey.value)
+      ?.sourceLabel ?? "",
 );
+
+const destinationOptions = computed(() =>
+  destinations.value.map((d) => ({ value: d.cacheKey, label: d.sourceLabel })),
+);
+
+function onSelectDest(value: string) {
+  destCacheKey.value = value;
+  onDestChange();
+}
 
 const filteredItems = computed(() => {
   const q = search.value.trim().toLowerCase();
@@ -79,10 +96,14 @@ const groupedItems = computed(() => {
     .map(([system, list]) => ({
       system,
       items: [...list].sort((a, b) =>
-        a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }),
+        a.displayName.localeCompare(b.displayName, undefined, {
+          sensitivity: "base",
+        }),
       ),
     }))
-    .sort((a, b) => a.system.localeCompare(b.system, undefined, { sensitivity: "base" }));
+    .sort((a, b) =>
+      a.system.localeCompare(b.system, undefined, { sensitivity: "base" }),
+    );
 });
 
 function toggleSystem(system: string) {
@@ -104,16 +125,23 @@ async function loadInitial() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await $fetch<{ games: GameLite[]; libraries: LibrarySummary[] }>("/api/roms");
+    const res = await $fetch<{
+      games: GameLite[];
+      libraries: LibrarySummary[];
+    }>("/api/roms");
     allGameKeys.value = res.games.map((g) => g.gameKey);
-    libraryLabel.value = res.libraries.find((l) => l.role === "library")?.sourceLabel ?? "";
-    destinations.value = res.libraries.filter((l) => l.role === "destination" && l.configured);
+    libraryLabel.value =
+      res.libraries.find((l) => l.role === "library")?.sourceLabel ?? "";
+    destinations.value = res.libraries.filter(
+      (l) => l.role === "destination" && l.configured,
+    );
     if (destinations.value.length === 1) {
       destCacheKey.value = destinations.value[0].cacheKey;
       await loadPlan();
     }
   } catch (e) {
-    error.value = (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
+    error.value =
+      (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
   } finally {
     loading.value = false;
   }
@@ -128,17 +156,23 @@ async function loadPlan() {
   error.value = null;
   results.value = [];
   try {
-    const res = await $fetch<{ plan: { items: PlanItem[] } }>("/api/roms/transfer/plan", {
-      method: "POST",
-      body: { destCacheKey: destCacheKey.value, gameKeys: allGameKeys.value },
-    });
+    const res = await $fetch<{ plan: { items: PlanItem[] } }>(
+      "/api/roms/transfer/plan",
+      {
+        method: "POST",
+        body: { destCacheKey: destCacheKey.value, gameKeys: allGameKeys.value },
+      },
+    );
     planItems.value = res.plan.items.sort((a, b) =>
-      a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }),
+      a.displayName.localeCompare(b.displayName, undefined, {
+        sensitivity: "base",
+      }),
     );
     // Pre-select everything transferable and not already installed.
     selected.value = new Set(transferable.value.map((i) => i.gameKey));
   } catch (e) {
-    error.value = (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
+    error.value =
+      (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
   } finally {
     planning.value = false;
   }
@@ -170,14 +204,19 @@ async function run() {
       "/api/roms/transfer/execute",
       {
         method: "POST",
-        body: { destCacheKey: destCacheKey.value, gameKeys: [...selected.value] },
+        body: {
+          destCacheKey: destCacheKey.value,
+          gameKeys: [...selected.value],
+        },
       },
     );
     results.value = res.results;
-    if (res.rescanError) error.value = `Transfer done, but re-scan failed: ${res.rescanError}`;
+    if (res.rescanError)
+      error.value = `Transfer done, but re-scan failed: ${res.rescanError}`;
     await loadPlan();
   } catch (e) {
-    error.value = (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
+    error.value =
+      (e as { statusMessage?: string }).statusMessage ?? (e as Error).message;
   } finally {
     running.value = false;
   }
@@ -187,7 +226,8 @@ onMounted(loadInitial);
 
 function itemState(i: PlanItem): { text: string; cls: string } {
   if (i.blocker) return { text: i.blocker, cls: "text-warn" };
-  if (i.alreadyInstalled) return { text: "already installed", cls: "text-fg-dim" };
+  if (i.alreadyInstalled)
+    return { text: "already installed", cls: "text-fg-dim" };
   return { text: formatBytes(i.sizeBytes), cls: "text-fg-dim" };
 }
 </script>
@@ -201,52 +241,75 @@ function itemState(i: PlanItem): { text: string; cls: string } {
 
     <p v-if="error" class="text-danger text-sm">{{ error }}</p>
 
-    <div v-if="loading" class="flex items-center justify-center gap-3 py-8 text-fg-dim">
+    <div
+      v-if="loading"
+      class="flex items-center justify-center gap-3 py-8 text-fg-dim"
+    >
       <Spinner /> <span>Loading…</span>
     </div>
 
     <template v-else>
-      <div v-if="destinations.length === 0" class="card text-center text-fg-dim">
+      <div
+        v-if="destinations.length === 0"
+        class="card text-center text-fg-dim"
+      >
         <p class="mb-1">No destination devices configured.</p>
         <p class="text-xs">
-          On the Devices page, set a ROM library folder on a device or virtual mount and
-          set its role to <span class="font-semibold text-fg">destination</span>.
+          On the Devices page, set a ROM library folder on a device or virtual
+          mount and set its role to
+          <span class="font-semibold text-fg">destination</span>.
         </p>
-        <NuxtLink to="/devices" class="btn-secondary mt-3 text-sm">Go to Devices</NuxtLink>
+        <NuxtLink to="/devices" class="btn-secondary mt-3 text-sm"
+          >Go to Devices</NuxtLink
+        >
       </div>
 
       <template v-else>
         <p v-if="libraryLabel" class="text-sm text-fg-dim">
-          Transferring from <span class="font-semibold text-fg">{{ libraryLabel }}</span>
+          Transferring from
+          <span class="font-semibold text-fg">{{ libraryLabel }}</span>
         </p>
-        <label class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1">
           <span class="label">Destination</span>
-          <select v-model="destCacheKey" class="input" @change="onDestChange">
-            <option value="" disabled>Choose a device…</option>
-            <option v-for="d in destinations" :key="d.cacheKey" :value="d.cacheKey">
-              {{ d.sourceLabel }}
-            </option>
-          </select>
-        </label>
+          <AppSelect
+            :model-value="destCacheKey"
+            :options="destinationOptions"
+            placeholder="Choose a device…"
+            aria-label="Destination device"
+            @update:model-value="onSelectDest"
+          />
+        </div>
 
-        <div v-if="planning" class="flex items-center justify-center gap-3 py-6 text-fg-dim">
+        <div
+          v-if="planning"
+          class="flex items-center justify-center gap-3 py-6 text-fg-dim"
+        >
           <Spinner /> <span>Building plan…</span>
         </div>
 
         <template v-else-if="destCacheKey">
-          <div v-if="planItems.length === 0" class="card text-center text-sm text-fg-dim">
+          <div
+            v-if="planItems.length === 0"
+            class="card text-center text-sm text-fg-dim"
+          >
             No games in the library yet.
           </div>
 
           <template v-else>
             <div class="flex items-center justify-between gap-2">
-              <h2 class="min-w-0 text-sm font-semibold uppercase tracking-wide text-fg-dim">
+              <h2
+                class="min-w-0 text-sm font-semibold uppercase tracking-wide text-fg-dim"
+              >
                 <span class="text-fg">To {{ selectedDestLabel }}</span>
                 · {{ transferable.length }} can transfer
               </h2>
               <div class="flex shrink-0 gap-2">
-                <button class="btn-ghost text-xs" @click="selectNeeded">Select needed</button>
-                <button class="btn-ghost text-xs" @click="selectNone">Clear</button>
+                <button class="btn-secondary text-sm" @click="selectNeeded">
+                  Select needed
+                </button>
+                <button class="btn-ghost text-sm" @click="selectNone">
+                  Clear
+                </button>
               </div>
             </div>
 
@@ -259,28 +322,44 @@ function itemState(i: PlanItem): { text: string; cls: string } {
               spellcheck="false"
             />
 
-            <div v-if="filteredItems.length === 0" class="card text-center text-sm text-fg-dim">
+            <div
+              v-if="filteredItems.length === 0"
+              class="card text-center text-sm text-fg-dim"
+            >
               No games match “{{ search }}”.
             </div>
-            <div v-else class="flex flex-col gap-3">
-              <div v-for="grp in groupedItems" :key="grp.system" class="flex flex-col gap-2">
+            <div v-else class="flex flex-col gap-5">
+              <div
+                v-for="grp in groupedItems"
+                :key="grp.system"
+                class="flex flex-col gap-2 bg-gray-800/50 rounded-2xl"
+              >
                 <button
-                  class="flex items-center justify-between gap-2 text-left"
+                  class="row-button bg-surface-2"
                   @click="toggleSystem(grp.system)"
                 >
-                  <span class="text-sm font-semibold">
-                    {{ grp.system }} <span class="text-fg-dim">· {{ grp.items.length }}</span>
+                  <span class="text-sm font-bold uppercase tracking-wide">
+                    {{ grp.system }}
+                    <span class="text-fg-dim">· {{ grp.items.length }}</span>
                   </span>
-                  <span aria-hidden="true" class="text-fg-dim">
+                  <span
+                    aria-hidden="true"
+                    class="text-xl leading-none text-accent"
+                  >
                     {{ collapsed.has(grp.system) ? "▸" : "▾" }}
                   </span>
                 </button>
-                <ul v-show="!collapsed.has(grp.system)" class="flex flex-col gap-2">
+                <ul
+                  v-show="!collapsed.has(grp.system)"
+                  class="flex flex-col gap-2 p-3"
+                >
                   <li v-for="i in grp.items" :key="i.gameKey">
                     <button
                       type="button"
                       class="card flex w-full items-start gap-3 text-left"
-                      :class="i.blocker || i.alreadyInstalled ? 'opacity-60' : ''"
+                      :class="
+                        i.blocker || i.alreadyInstalled ? 'opacity-60' : ''
+                      "
                       :disabled="Boolean(i.blocker) || i.alreadyInstalled"
                       @click="toggle(i.gameKey)"
                     >
@@ -292,9 +371,17 @@ function itemState(i: PlanItem): { text: string; cls: string } {
                         :disabled="Boolean(i.blocker) || i.alreadyInstalled"
                       />
                       <div class="flex min-w-0 flex-1 flex-col">
-                        <span class="truncate font-semibold">{{ i.displayName }}</span>
-                        <span class="truncate font-mono text-xs text-fg-dim">{{ i.filename }}</span>
-                        <span class="truncate text-xs" :class="itemState(i).cls">{{ itemState(i).text }}</span>
+                        <span class="truncate font-semibold">{{
+                          i.displayName
+                        }}</span>
+                        <span class="truncate font-mono text-xs text-fg-dim">{{
+                          i.filename
+                        }}</span>
+                        <span
+                          class="truncate text-xs"
+                          :class="itemState(i).cls"
+                          >{{ itemState(i).text }}</span
+                        >
                       </div>
                     </button>
                   </li>
@@ -305,11 +392,20 @@ function itemState(i: PlanItem): { text: string; cls: string } {
             <!-- Results -->
             <div v-if="resultSummary" class="card flex flex-col gap-1 text-sm">
               <p :class="resultSummary.failed > 0 ? 'text-warn' : 'text-ok'">
-                Copied {{ resultSummary.ok }} · skipped {{ resultSummary.skipped }}
-                <template v-if="resultSummary.failed > 0"> · failed {{ resultSummary.failed }}</template>
+                Copied {{ resultSummary.ok }} · skipped
+                {{ resultSummary.skipped }}
+                <template v-if="resultSummary.failed > 0">
+                  · failed {{ resultSummary.failed }}</template
+                >
               </p>
-              <ul v-if="resultSummary.failed > 0" class="flex flex-col gap-0.5 text-xs text-danger">
-                <li v-for="r in results.filter((x) => !x.ok && x.error)" :key="r.gameKey">
+              <ul
+                v-if="resultSummary.failed > 0"
+                class="flex flex-col gap-0.5 text-xs text-danger"
+              >
+                <li
+                  v-for="r in results.filter((x) => !x.ok && x.error)"
+                  :key="r.gameKey"
+                >
                   {{ r.filename }}: {{ r.error }}
                 </li>
               </ul>
@@ -329,7 +425,9 @@ function itemState(i: PlanItem): { text: string; cls: string } {
                 @click="run"
               >
                 <Spinner v-if="running" size="sm" />
-                <span>{{ running ? "Transferring…" : `Transfer ${selected.size}` }}</span>
+                <span>{{
+                  running ? "Transferring…" : `Transfer ${selected.size}`
+                }}</span>
               </button>
             </div>
           </template>

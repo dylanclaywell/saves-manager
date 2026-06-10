@@ -79,6 +79,19 @@ function variantLabel(key?: string): string {
   return game.value?.variants.find((v) => v.key === key)?.filename ?? key;
 }
 
+const prefOptions = computed(() => {
+  if (!game.value) return [];
+  const def = game.value.defaultVariantKey;
+  return [
+    { value: "", label: `Use default${def ? ` (${variantLabel(def)})` : ""}` },
+    ...game.value.variants.map((v) => ({ value: v.key, label: v.filename })),
+  ];
+});
+const profileOptions = computed(() => [
+  { value: "", label: "(none)" },
+  ...profileNames.value.map((n) => ({ value: n, label: n })),
+]);
+
 async function load() {
   loading.value = true;
   loadError.value = null;
@@ -206,16 +219,16 @@ function statusPill(status: DestinationState["status"]): { text: string; cls: st
           <p class="text-xs uppercase tracking-wide text-fg-dim">{{ game.system }}</p>
           <div v-if="!editingName" class="flex items-center gap-2">
             <h1 class="text-xl font-bold leading-tight">{{ game.displayName }}</h1>
-            <button class="btn-ghost px-2 py-1 text-xs" @click="startEditName">Edit</button>
+            <button class="btn-secondary shrink-0 text-sm" @click="startEditName">Edit</button>
           </div>
           <div v-else class="flex flex-col gap-2">
             <input v-model="nameDraft" class="input" @keyup.enter="saveName" />
-            <div class="flex gap-2">
-              <button class="btn-primary text-xs" :disabled="savingMeta" @click="saveName">Save</button>
-              <button class="btn-ghost text-xs" @click="editingName = false">Cancel</button>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn-primary text-sm" :disabled="savingMeta" @click="saveName">Save</button>
+              <button class="btn-ghost text-sm" @click="editingName = false">Cancel</button>
               <button
                 v-if="game.displayNameOverride"
-                class="btn-ghost text-xs text-fg-dim"
+                class="btn-ghost text-sm text-fg-dim"
                 @click="resetName"
               >
                 Reset to filename
@@ -252,7 +265,7 @@ function statusPill(status: DestinationState["status"]): { text: string; cls: st
               >
               <button
                 v-else
-                class="btn-ghost shrink-0 px-2 py-1 text-xs"
+                class="btn-secondary shrink-0 text-sm"
                 :disabled="savingMeta"
                 @click="setDefault(v.key)"
               >
@@ -298,22 +311,16 @@ function statusPill(status: DestinationState["status"]): { text: string; cls: st
                 · unknown: {{ d.unknownInstalled.join(", ") }}
               </span>
             </p>
-            <label class="flex flex-col gap-1 text-xs text-fg-dim">
+            <div class="flex flex-col gap-1 text-xs text-fg-dim">
               <span>prefers</span>
-              <select
-                class="input"
+              <AppSelect
+                :model-value="d.preferredInherited ? '' : (d.preferredVariantKey ?? '')"
+                :options="prefOptions"
                 :disabled="savingPrefKey === d.cacheKey"
-                :value="d.preferredInherited ? '' : (d.preferredVariantKey ?? '')"
-                @change="setPreference(d, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">
-                  Use default{{ game.defaultVariantKey ? ` (${variantLabel(game.defaultVariantKey)})` : "" }}
-                </option>
-                <option v-for="v in game.variants" :key="v.key" :value="v.key">
-                  {{ v.filename }}
-                </option>
-              </select>
-            </label>
+                aria-label="Preferred variant"
+                @update:model-value="(val) => setPreference(d, val)"
+              />
+            </div>
           </li>
         </ul>
       </section>
@@ -321,18 +328,16 @@ function statusPill(status: DestinationState["status"]): { text: string; cls: st
       <!-- Links & notes -->
       <section class="card flex flex-col gap-3">
         <h2 class="font-semibold">Links &amp; notes</h2>
-        <label class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1">
           <span class="label">Save profile</span>
-          <select
-            class="input"
-            :value="game.saveProfileName ?? ''"
+          <AppSelect
+            :model-value="game.saveProfileName ?? ''"
+            :options="profileOptions"
             :disabled="savingMeta"
-            @change="setSaveProfile(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="">(none)</option>
-            <option v-for="n in profileNames" :key="n" :value="n">{{ n }}</option>
-          </select>
-        </label>
+            aria-label="Save profile"
+            @update:model-value="setSaveProfile"
+          />
+        </div>
         <label class="flex flex-col gap-1">
           <span class="label">Notes</span>
           <textarea
